@@ -1,0 +1,208 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+import sqlite3
+
+# ========== BANCO DE DADOS ==========
+conexao = sqlite3.connect("sistema_vendas.db")
+cursor = conexao.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS clientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    email TEXT NOT NULL
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS pedidos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL,
+    produto TEXT NOT NULL,
+    valor REAL NOT NULL,
+    FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
+)
+""")
+conexao.commit()
+
+def inserir_cliente(nome, email):
+    cursor.execute("INSERT INTO clientes (nome, email) VALUES (?, ?)", (nome, email))
+    conexao.commit()
+
+def listar_clientes():
+    cursor.execute("SELECT * FROM clientes")
+    return cursor.fetchall()
+
+def excluir_cliente(id_cliente):
+    cursor.execute("DELETE FROM clientes WHERE id = ?", (id_cliente,))
+    conexao.commit()
+    return cursor.rowcount
+
+def inserir_pedido(cliente_id, produto, valor):
+    cursor.execute("INSERT INTO pedidos (cliente_id, produto, valor) VALUES (?, ?, ?)",
+                   (cliente_id, produto, valor))
+    conexao.commit()
+
+def listar_pedidos():
+    cursor.execute("""
+    SELECT pedidos.id, clientes.nome, pedidos.produto, pedidos.valor
+    FROM pedidos JOIN clientes ON pedidos.cliente_id = clientes.id
+    """)
+    return cursor.fetchall()
+
+def excluir_pedido(id_pedido):
+    cursor.execute("DELETE FROM pedidos WHERE id = ?", (id_pedido,))
+    conexao.commit()
+    return cursor.rowcount
+
+def listar_clientes_com_pedidos():
+    cursor.execute("""
+    SELECT clientes.nome, pedidos.produto, pedidos.valor
+    FROM clientes LEFT JOIN pedidos ON clientes.id = pedidos.cliente_id
+    ORDER BY clientes.nome
+    """)
+    return cursor.fetchall()
+
+def fechar_conexao():
+    conexao.close()
+
+# ========== INTERFACE ==========
+
+def iniciar_interface():
+    root = tk.Tk()
+    root.title("Sistema de Vendas")
+    root.geometry("800x700")
+
+    aba_control = ttk.Notebook(root)
+    aba_control.pack(fill='both', expand=True)
+
+    # ========== ABA 1: CADASTRO ==========
+    aba1 = tk.Frame(aba_control)
+    aba_control.add(aba1, text="Cadastro e Pedidos")
+
+    def adicionar_cliente():
+        nome = entry_nome.get()
+        email = entry_email.get()
+        if nome == "" or email == "":
+            messagebox.showwarning("Atenção", "Preencha nome e email.")
+            return
+        inserir_cliente(nome, email)
+        messagebox.showinfo("Sucesso", "Cliente adicionado.")
+        entry_nome.delete(0, tk.END)
+        entry_email.delete(0, tk.END)
+        atualizar_listas()
+
+    def excluir_cliente_ui():
+        try:
+            id_cliente = int(entry_id_cliente_excluir.get())
+            linhas = excluir_cliente(id_cliente)
+            msg = "Cliente excluído." if linhas else "ID não encontrado."
+            messagebox.showinfo("Resultado", msg)
+            entry_id_cliente_excluir.delete(0, tk.END)
+            atualizar_listas()
+        except ValueError:
+            messagebox.showerror("Erro", "ID inválido.")
+
+    def adicionar_pedido():
+        try:
+            cliente_id = int(entry_cliente_id.get())
+            produto = entry_produto.get()
+            valor = float(entry_valor.get())
+            if produto == "":
+                raise ValueError
+            inserir_pedido(cliente_id, produto, valor)
+            messagebox.showinfo("Sucesso", "Pedido adicionado.")
+            entry_cliente_id.delete(0, tk.END)
+            entry_produto.delete(0, tk.END)
+            entry_valor.delete(0, tk.END)
+            atualizar_listas()
+        except ValueError:
+            messagebox.showerror("Erro", "Dados inválidos.")
+
+    def excluir_pedido_ui():
+        try:
+            id_pedido = int(entry_id_pedido_excluir.get())
+            linhas = excluir_pedido(id_pedido)
+            msg = "Pedido excluído." if linhas else "ID não encontrado."
+            messagebox.showinfo("Resultado", msg)
+            entry_id_pedido_excluir.delete(0, tk.END)
+            atualizar_listas()
+        except ValueError:
+            messagebox.showerror("Erro", "ID inválido.")
+
+    def atualizar_listas():
+        listbox_clientes.delete(0, tk.END)
+        for c in listar_clientes():
+            listbox_clientes.insert(tk.END, f"ID: {c[0]} | {c[1]} | {c[2]}")
+
+        listbox_pedidos.delete(0, tk.END)
+        for p in listar_pedidos():
+            listbox_pedidos.insert(tk.END, f"Pedido ID: {p[0]} | Cliente: {p[1]} | Produto: {p[2]} | R$ {p[3]:.2f}")
+
+        listbox_relacionado.delete(0, tk.END)
+        for r in listar_clientes_com_pedidos():
+            cliente, produto, valor = r
+            if produto:
+                listbox_relacionado.insert(tk.END, f"{cliente} - {produto} - R$ {valor:.2f}")
+            else:
+                listbox_relacionado.insert(tk.END, f"{cliente} - Sem pedidos")
+
+    # Seção Cliente
+    tk.Label(aba1, text="Nome:").pack()
+    entry_nome = tk.Entry(aba1)
+    entry_nome.pack()
+
+    tk.Label(aba1, text="Email:").pack()
+    entry_email = tk.Entry(aba1)
+    entry_email.pack()
+
+    tk.Button(aba1, text="Adicionar Cliente", command=adicionar_cliente).pack(pady=5)
+
+    tk.Label(aba1, text="ID para Excluir Cliente:").pack()
+    entry_id_cliente_excluir = tk.Entry(aba1)
+    entry_id_cliente_excluir.pack()
+    tk.Button(aba1, text="Excluir Cliente", command=excluir_cliente_ui).pack(pady=5)
+
+    # Seção Pedido
+    tk.Label(aba1, text="ID do Cliente:").pack()
+    entry_cliente_id = tk.Entry(aba1)
+    entry_cliente_id.pack()
+    tk.Label(aba1, text="Produto:").pack()
+    entry_produto = tk.Entry(aba1)
+    entry_produto.pack()
+    tk.Label(aba1, text="Valor (R$):").pack()
+    entry_valor = tk.Entry(aba1)
+    entry_valor.pack()
+
+    tk.Button(aba1, text="Adicionar Pedido", command=adicionar_pedido).pack(pady=5)
+
+    tk.Label(aba1, text="ID para Excluir Pedido:").pack()
+    entry_id_pedido_excluir = tk.Entry(aba1)
+    entry_id_pedido_excluir.pack()
+    tk.Button(aba1, text="Excluir Pedido", command=excluir_pedido_ui).pack(pady=5)
+
+    # Listas
+    tk.Label(aba1, text="Clientes Cadastrados", font=("Arial", 10, "bold")).pack(pady=5)
+    listbox_clientes = tk.Listbox(aba1, width=90)
+    listbox_clientes.pack()
+
+    tk.Label(aba1, text="Pedidos Cadastrados", font=("Arial", 10, "bold")).pack(pady=5)
+    listbox_pedidos = tk.Listbox(aba1, width=90)
+    listbox_pedidos.pack()
+
+    # ========== ABA 2: RELACIONAMENTO ==========
+    aba2 = tk.Frame(aba_control)
+    aba_control.add(aba2, text="Clientes e seus Pedidos")
+
+    tk.Label(aba2, text="Clientes com seus Pedidos", font=("Arial", 12, "bold")).pack(pady=10)
+    listbox_relacionado = tk.Listbox(aba2, width=90)
+    listbox_relacionado.pack()
+
+    atualizar_listas()
+    root.mainloop()
+
+if __name__ == "__main__":
+    try:
+        iniciar_interface()
+    finally:
+        fechar_conexao()
