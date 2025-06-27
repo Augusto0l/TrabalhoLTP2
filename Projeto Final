@@ -1,1 +1,238 @@
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, Listbox
+import unicodedata
+
+# Função para normalizar texto (tira acentos, deixa tudo minúsculo)
+def normalizar_texto(texto):
+    texto = texto.lower()  # transforma em minúsculo
+    # Normaliza removendo acentos e outros sinais
+    texto = unicodedata.normalize('NFKD', texto)
+    # Remove caracteres combinantes (acentos)
+    texto = ''.join(c for c in texto if not unicodedata.combining(c))
+    return texto
+
+# Função para validar e normalizar o tipo (Filme ou Série)
+def normalizar_tipo(texto):
+    texto = normalizar_texto(texto)  # tira acento e deixa minúsculo
+    if texto in ['filme', 'serie']:  # verifica se o texto é válido
+        # Retorna com a primeira letra maiúscula (padronizado)
+        return 'Filme' if texto == 'filme' else 'Série'
+    else:
+        # Caso não seja válido, levanta um erro
+        raise Exception("Tipo inválido! Digite 'Filme' ou 'Série'.")
+
+# Classe para manipular o banco de dados SQLite
+class Banco:
+    def __init__(self):
+        # Conecta ou cria o banco catalogo.db
+        self.conexao = sqlite3.connect('catalogo.db')
+        self.create_tables()  # Cria as tabelas se não existirem
+
+    def create_tables(self):
+        cursor = self.conexao.cursor()
+        # Cria tabela 'genero' para armazenar os gêneros
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS genero (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL UNIQUE
+            )
+        ''')
+        # Cria tabela 'serie_filme' para armazenar séries e filmes
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS serie_filme (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titulo TEXT NOT NULL,
+                tipo TEXT CHECK(tipo IN ('Filme', 'Série')),
+                ano_lancamento INTEGER,
+                id_genero INTEGER,
+                FOREIGN KEY(id_genero) REFERENCES genero(id)
+            )
+        ''')
+        self.conexao.commit()  # Salva as mudanças
+
+    # Insere um novo gênero na tabela 'genero', se ainda não existir
+    def inserir_genero(self, nome):
+        cursor = self.conexao.cursor()
+        cursor.execute("INSERT OR IGNORE INTO genero (nome) VALUES (?)", (nome,))
+        self.conexao.commit()
+
+    # Lista todos os gêneros cadastrados
+    def listar_generos(self):
+        cursor = self.conexao.cursor()
+        cursor.execute("SELECT * FROM genero")
+        return cursor.fetchall()
+
+    # Busca um gênero pelo nome, comparando de forma normalizada
+    def buscar_genero_por_nome(self, nome):
+        nome_normalizado = normalizar_texto(nome)
+        cursor = self.conexao.cursor()
+        cursor.execute("SELECT id, nome FROM genero")
+        for id_genero, nome_genero in cursor.fetchall():
+            # Compara nomes normalizados (sem acento, minúsculo)
+            if normalizar_texto(nome_genero) == nome_normalizado:
+                return id_genero  # Retorna o id do gênero encontrado
+        return None  # Se não achar, retorna None
+
+    # Insere um novo registro de série ou filme
+    def inserir_serie_filme(self, titulo, tipo, ano, id_genero):
+        cursor = self.conexao.cursor()
+        cursor.execute("""
+            INSERT INTO serie_filme (titulo, tipo, ano_lancamento, id_genero)
+            VALUES (?, ?, ?, ?)
+        """, (titulo, tipo, ano, id_genero))
+        self.conexao.commit()
+
+    # Lista todas as séries e filmes, trazendo o nome do gênero junto
+    def listar_series_filmes(self):
+        cursor = self.conexao.cursor()
+        cursor.execute("""
+            SELECT sf.id, sf.titulo, sf.tipo, sf.ano_lancamento, g.nome
+            FROM serie_filme sf
+            JOIN genero g ON sf.id_genero = g.id
+        """)
+        return cursor.fetchall()
+
+    # Atualiza um registro existente pelo id
+    def atualizar_serie_filme(self, id, titulo, tipo, ano, id_genero):
+        cursor = self.conexao.cursor()
+        cursor.execute("""
+            UPDATE serie_filme
+            SET titulo = ?, tipo = ?, ano_lancamento = ?, id_genero = ?
+            WHERE id = ?
+        """, (titulo, tipo, ano, id_genero, id))
+        self.conexao.commit()
+
+    # Remove um registro pelo id
+    def excluir_serie_filme(self, id):
+        cursor = self.conexao.cursor()
+        cursor.execute("DELETE FROM serie_filme WHERE id = ?", (id,))
+        self.conexao.commit()
+
+# Classe que cria a interface gráfica e interage com o banco
+class Aplicacao:
+    def __init__(self, master):
+        self.master = master
+        master.title("Catálogo de Séries e Filmes")  # Título da janela
+        self.banco = Banco()  # Instancia a classe banco para usar
+
+        # Cria Labels e Campos para entrada de dados (id, título, tipo, ano, gênero)
+        tk.Label(master, text="ID (para atualizar/excluir):").grid(row=0, column=0)
+        self.id_entry = tk.Entry(master)
+        self.id_entry.grid(row=0, column=1)
+
+        tk.Label(master, text="Título:").grid(row=1, column=0)
+        self.titulo_entry = tk.Entry(master)
+        self.titulo_entry.grid(row=1, column=1)
+
+        tk.Label(master, text="Tipo (Filme/Série):").grid(row=2, column=0)
+        self.tipo_entry = tk.Entry(master)
+        self.tipo_entry.grid(row=2, column=1)
+
+        tk.Label(master, text="Ano de Lançamento:").grid(row=3, column=0)
+        self.ano_entry = tk.Entry(master)
+        self.ano_entry.grid(row=3, column=1)
+
+        tk.Label(master, text="Gênero (Nome):").grid(row=4, column=0)
+        self.genero_entry = tk.Entry(master)
+        self.genero_entry.grid(row=4, column=1)
+
+        # Botões para executar as ações
+        tk.Button(master, text="Inserir", command=self.inserir).grid(row=5, column=0)
+        tk.Button(master, text="Atualizar", command=self.atualizar).grid(row=5, column=1)
+        tk.Button(master, text="Excluir", command=self.excluir).grid(row=6, column=0)
+        tk.Button(master, text="Listar", command=self.listar).grid(row=6, column=1)
+        tk.Button(master, text="Listar Gêneros", command=self.listar_generos).grid(row=7, column=0, columnspan=2)
+
+        # Listbox para mostrar os registros
+        self.listbox = Listbox(master, width=80)
+        self.listbox.grid(row=8, column=0, columnspan=2)
+
+    # Método que recebe o nome do gênero e retorna o id correspondente do banco
+    def get_genero_id(self, nome_genero):
+        id_genero = self.banco.buscar_genero_por_nome(nome_genero)
+        if id_genero is None:
+            # Se o gênero não existir, avisa o usuário
+            raise Exception(f"Gênero '{nome_genero}' não encontrado! Clique em 'Listar Gêneros' para ver os disponíveis.")
+        return id_genero
+
+    # Método para inserir um novo registro no banco
+    def inserir(self):
+        try:
+            titulo = self.titulo_entry.get()
+            tipo = normalizar_tipo(self.tipo_entry.get())  # Normaliza tipo e valida
+            ano = int(self.ano_entry.get())
+            genero_nome = self.genero_entry.get()
+            id_genero = self.get_genero_id(genero_nome)  # Pega id do gênero
+            self.banco.inserir_serie_filme(titulo, tipo, ano, id_genero)  # Insere no BD
+            messagebox.showinfo("Sucesso", "Registro inserido com sucesso!")
+            self.listar()  # Atualiza lista na tela
+            self.limpar_campos()  # Limpa campos para nova entrada
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao inserir: {e}")
+
+    # Método para atualizar um registro existente
+    def atualizar(self):
+        try:
+            id = int(self.id_entry.get())  # ID obrigatório para atualizar
+            titulo = self.titulo_entry.get()
+            tipo = normalizar_tipo(self.tipo_entry.get())  # Normaliza tipo e valida
+            ano = int(self.ano_entry.get())
+            genero_nome = self.genero_entry.get()
+            id_genero = self.get_genero_id(genero_nome)
+            self.banco.atualizar_serie_filme(id, titulo, tipo, ano, id_genero)  # Atualiza no BD
+            messagebox.showinfo("Sucesso", "Registro atualizado!")
+            self.listar()
+            self.limpar_campos()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao atualizar: {e}")
+
+    # Método para excluir um registro pelo ID
+    def excluir(self):
+        try:
+            id = int(self.id_entry.get())
+            self.banco.excluir_serie_filme(id)
+            messagebox.showinfo("Sucesso", "Registro excluído!")
+            self.listar()
+            self.limpar_campos()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao excluir: {e}")
+
+    # Método para listar todos os registros no listbox
+    def listar(self):
+        self.listbox.delete(0, tk.END)  # Limpa o listbox
+        for row in self.banco.listar_series_filmes():
+            # Exibe informações formatadas na listagem
+            self.listbox.insert(tk.END, f"ID: {row[0]} | Título: {row[1]} | Tipo: {row[2]} | Ano: {row[3]} | Gênero: {row[4]}")
+
+    # Método para listar os gêneros cadastrados no listbox
+    def listar_generos(self):
+        self.listbox.delete(0, tk.END)
+        generos = self.banco.listar_generos()
+        if not generos:
+            self.listbox.insert(tk.END, "Nenhum gênero cadastrado ainda.")
+        for row in generos:
+            self.listbox.insert(tk.END, f"ID: {row[0]} | Gênero: {row[1]}")
+
+    # Método para limpar todos os campos de entrada
+    def limpar_campos(self):
+        self.id_entry.delete(0, tk.END)
+        self.titulo_entry.delete(0, tk.END)
+        self.tipo_entry.delete(0, tk.END)
+        self.ano_entry.delete(0, tk.END)
+        self.genero_entry.delete(0, tk.END)
+
+# Função para inserir gêneros iniciais no banco (só na primeira execução)
+def inserir_generos_iniciais():
+    banco = Banco()
+    generos = ['Ação', 'Comédia', 'Drama', 'Terror', 'Animação']
+    for genero in generos:
+        banco.inserir_genero(genero)
+
+# Parte principal que roda o programa
+if __name__ == "__main__":
+    inserir_generos_iniciais()  # Insere gêneros padrão na primeira execução
+    root = tk.Tk()  # Cria a janela principal do Tkinter
+    app = Aplicacao(root)  # Cria a aplicação
+    root.mainloop()  # Inicia o loop da interface (espera ações do usuário)
 
