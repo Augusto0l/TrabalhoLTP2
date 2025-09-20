@@ -1,184 +1,188 @@
-# sim_scheduler.py
-# Simulador de escalonamento de processos (CPU + I/O)
+# simulador.py
+# Simulador de escalonamento de processos (CPU + Entrada/Saída)
 # Regras:
 # - Fatia de CPU = 3 ciclos
-# - Fatia de I/O = 6 ciclos
-# - Fila de prontos = ordenada por prioridade (menor número = mais prioritário)
-# - Fila de I/O = FIFO
-# - Estruturas implementadas manualmente (sem bibliotecas prontas)
+# - Fatia de Entrada/Saída = 6 ciclos
+# - Fila de prontos = ordenada por prioridade (menor número = mais prioridade)
+# - Fila de E/S = FIFO
+# - Estruturas de dados feitas manualmente, sem bibliotecas prontas
 
 # ---------------------------
 # Estruturas de dados
 # ---------------------------
-class Node:
-    def __init__(self, value):
-        self.value = value
-        self.next = None
 
-class FIFOQueue:
+class No:
+    def __init__(self, valor):
+        self.valor = valor
+        self.proximo = None
+
+class FilaFIFO:
     def __init__(self):
-        self.head = None
-        self.tail = None
+        self.inicio = None
+        self.fim = None
 
-    def enqueue(self, item):
-        node = Node(item)
-        if self.tail:
-            self.tail.next = node
-            self.tail = node
+    def enfileirar(self, item):
+        no = No(item)
+        if self.fim:
+            self.fim.proximo = no
+            self.fim = no
         else:
-            self.head = self.tail = node
+            self.inicio = self.fim = no
 
-    def dequeue(self):
-        if not self.head:
+    def desenfileirar(self):
+        if not self.inicio:
             return None
-        node = self.head
-        self.head = node.next
-        if not self.head:
-            self.tail = None
-        return node.value
+        no = self.inicio
+        self.inicio = no.proximo
+        if not self.inicio:
+            self.fim = None
+        return no.valor
 
-    def is_empty(self):
-        return self.head is None
+    def vazia(self):
+        return self.inicio is None
 
-class ReadyQueue:
+class FilaProntos:
     def __init__(self):
-        self.head = None
+        self.inicio = None
 
-    def enqueue(self, proc):
-        node = Node(proc)
-        if self.head is None:
-            self.head = node
+    def enfileirar(self, processo):
+        no = No(processo)
+        if self.inicio is None:
+            self.inicio = no
         else:
-            if proc.priority < self.head.value.priority:
-                node.next = self.head
-                self.head = node
+            if processo.prioridade < self.inicio.valor.prioridade:
+                no.proximo = self.inicio
+                self.inicio = no
             else:
-                prev = None
-                cur = self.head
-                while cur and cur.value.priority <= proc.priority:
-                    prev = cur
-                    cur = cur.next
-                if prev is None:
-                    node.next = self.head
-                    self.head = node
+                anterior = None
+                atual = self.inicio
+                while atual and atual.valor.prioridade <= processo.prioridade:
+                    anterior = atual
+                    atual = atual.proximo
+                if anterior is None:
+                    no.proximo = self.inicio
+                    self.inicio = no
                 else:
-                    node.next = prev.next
-                    prev.next = node
+                    no.proximo = anterior.proximo
+                    anterior.proximo = no
 
-    def dequeue(self):
-        if not self.head:
+    def desenfileirar(self):
+        if not self.inicio:
             return None
-        node = self.head
-        self.head = node.next
-        return node.value
+        no = self.inicio
+        self.inicio = no.proximo
+        return no.valor
 
-    def is_empty(self):
-        return self.head is None
+    def vazia(self):
+        return self.inicio is None
 
 # ---------------------------
-# Classe de processo
+# Classe de Processo
 # ---------------------------
-class Process:
-    def __init__(self, pid, arrival, io_time, proc_time, priority):
+
+class Processo:
+    def __init__(self, pid, chegada, tempo_es, tempo_cpu, prioridade):
         self.pid = pid
-        self.arrival = arrival
-        self.io_time = io_time
-        self.proc_time = proc_time
-        self.priority = priority
-        self.termination_ready = False
+        self.chegada = chegada
+        self.tempo_es = tempo_es
+        self.tempo_cpu = tempo_cpu
+        self.prioridade = prioridade
+        self.encerramento_pendente = False  # precisa de 1 ciclo só para encerrar
 
 # ---------------------------
 # Simulação
 # ---------------------------
-def simulate(process_list):
-    proc_by_arrival = sorted(process_list, key=lambda p: p.arrival)
-    idx_next_arrival = 0
-    n = len(process_list)
 
-    ready = ReadyQueue()
-    io_queue = FIFOQueue()
+def simular(lista_processos):
+    processos_ordenados = sorted(lista_processos, key=lambda p: p.chegada)
+    proximo_idx = 0
+    total = len(lista_processos)
 
-    cpu_proc = None
-    cpu_slice = 0
+    prontos = FilaProntos()
+    fila_es = FilaFIFO()
 
-    io_proc = None
-    io_slice = 0
+    processo_cpu = None
+    fatia_cpu = 0
 
-    time = 0
-    completed = []
+    processo_es = None
+    fatia_es = 0
 
-    while len(completed) < n:
+    tempo = 0
+    finalizados = []
+
+    while len(finalizados) < total:
         # chegada de novos processos
-        while idx_next_arrival < n and proc_by_arrival[idx_next_arrival].arrival == time:
-            ready.enqueue(proc_by_arrival[idx_next_arrival])
-            idx_next_arrival += 1
+        while proximo_idx < total and processos_ordenados[proximo_idx].chegada == tempo:
+            prontos.enfileirar(processos_ordenados[proximo_idx])
+            proximo_idx += 1
 
-        # CPU pega processo se estiver livre
-        if cpu_proc is None and not ready.is_empty():
-            cpu_proc = ready.dequeue()
-            if cpu_proc.termination_ready:
-                cpu_slice = 1
+        # CPU pega processo
+        if processo_cpu is None and not prontos.vazia():
+            processo_cpu = prontos.desenfileirar()
+            if processo_cpu.encerramento_pendente:
+                fatia_cpu = 1
             else:
-                if cpu_proc.proc_time >= 3:
-                    cpu_slice = 3
+                if processo_cpu.tempo_cpu >= 3:
+                    fatia_cpu = 3
                 else:
-                    cpu_slice = cpu_proc.proc_time
+                    fatia_cpu = processo_cpu.tempo_cpu
 
-        # I/O pega processo se estiver livre
-        if io_proc is None and not io_queue.is_empty():
-            io_proc = io_queue.dequeue()
-            if io_proc.io_time >= 6:
-                io_slice = 6
+        # E/S pega processo
+        if processo_es is None and not fila_es.vazia():
+            processo_es = fila_es.desenfileirar()
+            if processo_es.tempo_es >= 6:
+                fatia_es = 6
             else:
-                io_slice = io_proc.io_time
+                fatia_es = processo_es.tempo_es
 
         # Executa 1 ciclo
-        if cpu_proc is not None:
-            if cpu_proc.termination_ready:
-                cpu_slice -= 1
+        if processo_cpu is not None:
+            if processo_cpu.encerramento_pendente:
+                fatia_cpu -= 1
             else:
-                cpu_proc.proc_time -= 1
-                cpu_slice -= 1
+                processo_cpu.tempo_cpu -= 1
+                fatia_cpu -= 1
 
-        if io_proc is not None:
-            io_proc.io_time -= 1
-            io_slice -= 1
+        if processo_es is not None:
+            processo_es.tempo_es -= 1
+            fatia_es -= 1
 
-        time += 1
+        tempo += 1
 
-        # Verifica término CPU
-        if cpu_proc is not None and cpu_slice == 0:
-            if cpu_proc.termination_ready:
-                completed.append((time, cpu_proc.pid))
-                cpu_proc = None
+        # Verifica término da CPU
+        if processo_cpu is not None and fatia_cpu == 0:
+            if processo_cpu.encerramento_pendente:
+                finalizados.append((tempo, processo_cpu.pid))
+                processo_cpu = None
             else:
-                if cpu_proc.proc_time > 0 and cpu_proc.io_time == 0:
-                    ready.enqueue(cpu_proc)
-                elif cpu_proc.proc_time > 0 and cpu_proc.io_time > 0:
-                    io_queue.enqueue(cpu_proc)
-                elif cpu_proc.proc_time == 0 and cpu_proc.io_time > 0:
-                    io_queue.enqueue(cpu_proc)
+                if processo_cpu.tempo_cpu > 0 and processo_cpu.tempo_es == 0:
+                    prontos.enfileirar(processo_cpu)
+                elif processo_cpu.tempo_cpu > 0 and processo_cpu.tempo_es > 0:
+                    fila_es.enfileirar(processo_cpu)
+                elif processo_cpu.tempo_cpu == 0 and processo_cpu.tempo_es > 0:
+                    fila_es.enfileirar(processo_cpu)
                 else:
-                    cpu_proc.termination_ready = True
-                    ready.enqueue(cpu_proc)
-                cpu_proc = None
+                    processo_cpu.encerramento_pendente = True
+                    prontos.enfileirar(processo_cpu)
+                processo_cpu = None
 
-        # Verifica término I/O
-        if io_proc is not None and io_slice == 0:
-            if io_proc.proc_time > 0:
-                ready.enqueue(io_proc)
-            elif io_proc.proc_time == 0 and io_proc.io_time > 0:
-                io_queue.enqueue(io_proc)
+        # Verifica término da E/S
+        if processo_es is not None and fatia_es == 0:
+            if processo_es.tempo_cpu > 0:
+                prontos.enfileirar(processo_es)
+            elif processo_es.tempo_cpu == 0 and processo_es.tempo_es > 0:
+                fila_es.enfileirar(processo_es)
             else:
-                io_proc.termination_ready = True
-                ready.enqueue(io_proc)
-            io_proc = None
+                processo_es.encerramento_pendente = True
+                prontos.enfileirar(processo_es)
+            processo_es = None
 
-    return sorted(completed, key=lambda x: (x[0], x[1]))
+    return sorted(finalizados, key=lambda x: (x[0], x[1]))
 
 # ---------------------------
-# Main
+# Programa Principal
 # ---------------------------
+
 if __name__ == "__main__":
     dados = """1;1;5;12;3
 2;2;4;8;2
@@ -201,12 +205,12 @@ if __name__ == "__main__":
         partes = linha.strip().split(";")
         pid = int(partes[0])
         chegada = int(partes[1])
-        io = int(partes[2])
-        cpu = int(partes[3])
-        prio = int(partes[4])
-        processos.append(Process(pid, chegada, io, cpu, prio))
+        tempo_es = int(partes[2])
+        tempo_cpu = int(partes[3])
+        prioridade = int(partes[4])
+        processos.append(Processo(pid, chegada, tempo_es, tempo_cpu, prioridade))
 
-    resultado = simulate(processos)
+    resultado = simular(processos)
 
     with open("saida.txt", "w") as f:
         for tempo, pid in resultado:
